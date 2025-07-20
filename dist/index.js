@@ -68864,7 +68864,7 @@ var readRequiresPixiFromManifest = (manifestPath) => {
       }
     }
   } catch (error3) {
-    core.debug(`Error reading requires-pixi from ${manifestPath}: ${error3}`);
+    core.debug(`Error reading requires-pixi from ${manifestPath}: ${String(error3)}`);
   }
   return void 0;
 };
