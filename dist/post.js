@@ -24707,6 +24707,44 @@ function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
 
 // src/options.ts
 var import_which = __toESM(require_lib2());
+var readRequiresPixiFromManifest = (manifestPath) => {
+  if (!(0, import_fs.existsSync)(manifestPath)) {
+    return void 0;
+  }
+  try {
+    const fileContent = (0, import_fs.readFileSync)(manifestPath, "utf-8");
+    const parsedContent = parse(fileContent);
+    let requiresPixi;
+    if (manifestPath.endsWith("pyproject.toml")) {
+      if (parsedContent.tool && typeof parsedContent.tool === "object" && "pixi" in parsedContent.tool) {
+        const pixiSection = parsedContent.tool.pixi;
+        if (pixiSection.project && typeof pixiSection.project === "object") {
+          const projectSection = pixiSection.project;
+          requiresPixi = projectSection["requires-pixi"];
+        }
+      }
+    } else {
+      if (parsedContent.project && typeof parsedContent.project === "object") {
+        const projectSection = parsedContent.project;
+        requiresPixi = projectSection["requires-pixi"];
+      }
+    }
+    if (typeof requiresPixi === "string") {
+      const versionSchema = unionType([literalType("latest"), stringType().regex(/^v\d+\.\d+\.\d+$/)]);
+      const validationResult = versionSchema.safeParse(requiresPixi);
+      if (validationResult.success) {
+        return validationResult.data;
+      } else {
+        core.warning(
+          `Invalid requires-pixi value "${requiresPixi}" in ${manifestPath}. Must be "latest" or a version string matching "vX.Y.Z". Ignoring requires-pixi field.`
+        );
+      }
+    }
+  } catch (error2) {
+    core.debug(`Error reading requires-pixi from ${manifestPath}: ${error2}`);
+  }
+  return void 0;
+};
 var pixiPath = "pixi.toml";
 var pyprojectPath = "pyproject.toml";
 var logLevelSchema = enumType(["q", "default", "v", "vv", "vvv"]);
@@ -24826,11 +24864,6 @@ var determinePixiInstallation = (pixiUrlOrVersionSet, pixiBinPath) => {
 };
 var inferOptions = (inputs) => {
   const runInstall = inputs.runInstall ?? true;
-  const pixiSource = inputs.pixiVersion ? { version: inputs.pixiVersion } : inputs.pixiUrl ? { url: inputs.pixiUrl, bearerToken: inputs.pixiUrlBearerToken } : { version: "latest" };
-  const { downloadPixi, pixiBinPath } = determinePixiInstallation(
-    !!inputs.pixiVersion || !!inputs.pixiUrl,
-    inputs.pixiBinPath
-  );
   const logLevel = inputs.logLevel ?? (core.isDebug() ? "vv" : "default");
   let manifestPath = pixiPath;
   if (inputs.manifestPath) {
@@ -24854,6 +24887,24 @@ var inferOptions = (inputs) => {
       core.warning(`Could not find any manifest file. Defaulting to ${pixiPath}.`);
     }
   }
+  let pixiSource;
+  if (inputs.pixiVersion) {
+    pixiSource = { version: inputs.pixiVersion };
+  } else if (inputs.pixiUrl) {
+    pixiSource = { url: inputs.pixiUrl, bearerToken: inputs.pixiUrlBearerToken };
+  } else {
+    const requiresPixi = readRequiresPixiFromManifest(manifestPath);
+    if (requiresPixi) {
+      core.info(`Using pixi version ${requiresPixi} from requires-pixi field in ${manifestPath}`);
+      pixiSource = { version: requiresPixi };
+    } else {
+      pixiSource = { version: "latest" };
+    }
+  }
+  const { downloadPixi, pixiBinPath } = determinePixiInstallation(
+    !!inputs.pixiVersion || !!inputs.pixiUrl,
+    inputs.pixiBinPath
+  );
   const pixiLockFile = import_path.default.join(import_path.default.dirname(manifestPath), "pixi.lock");
   const lockFileAvailable = (0, import_fs.existsSync)(pixiLockFile);
   core.debug(`lockFileAvailable: ${lockFileAvailable ? "yes" : "no"}`);

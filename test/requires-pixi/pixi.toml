@@ -1,0 +1,11 @@
+[project]
+name = "test-requires-pixi"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
+requires-pixi = "v0.44.0"
+
+[tasks]
+test = "python -c 'print(\"Hello world with requires-pixi!\")'"
+
+[dependencies]
+python = "3.11.*"
