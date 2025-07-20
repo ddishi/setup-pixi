@@ -8,6 +8,60 @@ import untildify from 'untildify'
 import { parse } from 'smol-toml'
 import which from 'which'
 
+/**
+ * Reads the requires-pixi field from a manifest file (pixi.toml or pyproject.toml)
+ * @param manifestPath Path to the manifest file
+ * @returns The requires-pixi version string if found, undefined otherwise
+ */
+const readRequiresPixiFromManifest = (manifestPath: string): string | undefined => {
+  if (!existsSync(manifestPath)) {
+    return undefined
+  }
+
+  try {
+    const fileContent = readFileSync(manifestPath, 'utf-8')
+    const parsedContent: Record<string, unknown> = parse(fileContent)
+
+    let requiresPixi: unknown
+
+    // Check if this is a pyproject.toml with tool.pixi section
+    if (manifestPath.endsWith('pyproject.toml')) {
+      if (parsedContent.tool && typeof parsedContent.tool === 'object' && 'pixi' in parsedContent.tool) {
+        const pixiSection = parsedContent.tool.pixi as Record<string, unknown>
+        if (pixiSection.project && typeof pixiSection.project === 'object') {
+          const projectSection = pixiSection.project as Record<string, unknown>
+          requiresPixi = projectSection['requires-pixi']
+        }
+      }
+    } else {
+      // For pixi.toml files, check the project section directly
+      if (parsedContent.project && typeof parsedContent.project === 'object') {
+        const projectSection = parsedContent.project as Record<string, unknown>
+        requiresPixi = projectSection['requires-pixi']
+      }
+    }
+
+    if (typeof requiresPixi === 'string') {
+      // Validate the requires-pixi format using the same schema as pixi-version
+      const versionSchema = z.union([z.literal('latest'), z.string().regex(/^v\d+\.\d+\.\d+$/)])
+      const validationResult = versionSchema.safeParse(requiresPixi)
+
+      if (validationResult.success) {
+        return validationResult.data
+      } else {
+        core.warning(
+          `Invalid requires-pixi value "${requiresPixi}" in ${manifestPath}. ` +
+            'Must be "latest" or a version string matching "vX.Y.Z". Ignoring requires-pixi field.'
+        )
+      }
+    }
+  } catch (error) {
+    core.debug(`Error reading requires-pixi from ${manifestPath}: ${String(error)}`)
+  }
+
+  return undefined
+}
+
 type Inputs = Readonly<{
   pixiVersion?: string
   pixiUrl?: string
@@ -225,16 +279,7 @@ const determinePixiInstallation = (pixiUrlOrVersionSet: boolean, pixiBinPath: st
 
 const inferOptions = (inputs: Inputs): Options => {
   const runInstall = inputs.runInstall ?? true
-  const pixiSource = inputs.pixiVersion
-    ? { version: inputs.pixiVersion }
-    : inputs.pixiUrl
-      ? { url: inputs.pixiUrl, bearerToken: inputs.pixiUrlBearerToken }
-      : { version: 'latest' }
 
-  const { downloadPixi, pixiBinPath } = determinePixiInstallation(
-    !!inputs.pixiVersion || !!inputs.pixiUrl,
-    inputs.pixiBinPath
-  )
   const logLevel = inputs.logLevel ?? (core.isDebug() ? 'vv' : 'default')
   // infer manifest path from inputs or default to pixi.toml or pyproject.toml depending on what is present in the repo.
   let manifestPath = pixiPath // default
@@ -261,6 +306,28 @@ const inferOptions = (inputs: Inputs): Options => {
       core.warning(`Could not find any manifest file. Defaulting to ${pixiPath}.`)
     }
   }
+
+  // Determine pixi source - check requires-pixi from manifest if no explicit version/url provided
+  let pixiSource: PixiSource
+  if (inputs.pixiVersion) {
+    pixiSource = { version: inputs.pixiVersion }
+  } else if (inputs.pixiUrl) {
+    pixiSource = { url: inputs.pixiUrl, bearerToken: inputs.pixiUrlBearerToken }
+  } else {
+    // Try to read requires-pixi from manifest file
+    const requiresPixi = readRequiresPixiFromManifest(manifestPath)
+    if (requiresPixi) {
+      core.info(`Using pixi version ${requiresPixi} from requires-pixi field in ${manifestPath}`)
+      pixiSource = { version: requiresPixi }
+    } else {
+      pixiSource = { version: 'latest' }
+    }
+  }
+
+  const { downloadPixi, pixiBinPath } = determinePixiInstallation(
+    !!inputs.pixiVersion || !!inputs.pixiUrl,
+    inputs.pixiBinPath
+  )
 
   const pixiLockFile = path.join(path.dirname(manifestPath), 'pixi.lock')
   const lockFileAvailable = existsSync(pixiLockFile)

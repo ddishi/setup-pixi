@@ -818,6 +818,68 @@ jobs:
           cache: true
           manifest-path: test/pyproject-manifest/pyproject.toml
 
+  requires-pixi:
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Move pixi.toml with requires-pixi
+        run: mv test/requires-pixi/* .
+      - uses: ./
+        with:
+          cache: false
+      - run: |
+          set -o pipefail
+          pixi info
+          # Verify that pixi v0.44.0 was used (the version specified in requires-pixi)
+          pixi --version | grep -E "pixi 0\.44\.0"
+        shell: bash
+        if: matrix.os != 'windows-latest'
+      - run: |
+          set -o pipefail
+          pixi info
+          # Verify that pixi v0.44.0 was used (the version specified in requires-pixi)
+          pixi --version | grep -E "pixi 0\.44\.0"
+        shell: bash
+        if: matrix.os == 'windows-latest'
+      - run: |
+          pixi run python --version | grep -q 3.11
+          pixi run test | grep -q "Hello world with requires-pixi"
+
+  requires-pixi-pyproject:
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Move pyproject.toml with requires-pixi
+        run: mv test/requires-pixi-pyproject/* .
+      - uses: ./
+        with:
+          cache: false
+      - run: |
+          set -o pipefail
+          pixi info
+          # Verify that pixi v0.45.0 was used (the version specified in requires-pixi)
+          pixi --version | grep -E "pixi 0\.45\.0"
+        shell: bash
+        if: matrix.os != 'windows-latest'
+      - run: |
+          set -o pipefail
+          pixi info
+          # Verify that pixi v0.45.0 was used (the version specified in requires-pixi)
+          pixi --version | grep -E "pixi 0\.45\.0"
+        shell: bash
+        if: matrix.os == 'windows-latest'
+      - run: |
+          pixi run python --version | grep -q 3.11
+          pixi run test | grep -q "Hello from pyproject.toml with requires-pixi"
+
   environment-activation-unix:
     strategy:
       matrix:
